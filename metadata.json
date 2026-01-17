@@ -1,0 +1,5 @@
+{
+  "name": "HeritageTree - Family Legacy Tracker",
+  "description": "A modern family tree application to visualize ancestry, manage personal profiles, and preserve family history using interactive D3.js visualizations and Gemini AI assistance.",
+  "requestFramePermissions": []
+}
