@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Person, ViewType } from './types';
 import { INITIAL_PEOPLE } from './constants';
@@ -8,6 +7,7 @@ import ProfileModal from './components/ProfileModal';
 import AddPersonModal from './components/AddPersonModal';
 import EditPersonModal from './components/EditPersonModal';
 import AdminLoginModal from './components/AdminLoginModal';
+import DataManagementModal from './components/DataManagementModal';
 
 const App: React.FC = () => {
   const [people, setPeople] = useState<Person[]>(() => {
@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -51,6 +52,10 @@ const App: React.FC = () => {
       setSelectedPerson(updated);
     }
     setEditingPerson(null);
+  };
+
+  const handleImportPeople = (newPeople: Person[]) => {
+    setPeople(newPeople);
   };
 
   const handleDeletePerson = (id: string) => {
@@ -110,6 +115,15 @@ const App: React.FC = () => {
           
           {isAdmin ? (
             <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setIsDataModalOpen(true)}
+                className="text-slate-500 hover:text-indigo-600 p-2.5 rounded-xl transition-all hover:bg-slate-50 border border-transparent hover:border-slate-100"
+                title="Manage Data"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                </svg>
+              </button>
               <button 
                 onClick={() => setIsAddModalOpen(true)}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 active:scale-95"
@@ -232,6 +246,14 @@ const App: React.FC = () => {
             setIsAdmin(true);
             setIsLoginModalOpen(false);
           }}
+        />
+      )}
+
+      {isDataModalOpen && (
+        <DataManagementModal 
+          currentPeople={people}
+          onClose={() => setIsDataModalOpen(false)}
+          onImport={handleImportPeople}
         />
       )}
 

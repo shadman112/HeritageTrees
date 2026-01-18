@@ -1,6 +1,5 @@
-// FIX: Removed unused 'Type' import and ensured content generation follows the latest SDK best practices.
-import { GoogleGenAI } from "@google/genai";
-import { Person } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import { Person, Gender } from "../types";
 
 const getAI = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -29,10 +28,52 @@ export const generateBio = async (person: Person, familyContext?: string): Promi
         topP: 0.9,
       }
     });
-    // Property access .text is correct according to @google/genai guidelines.
     return response.text || "Could not generate biography at this time.";
   } catch (error) {
     console.error("Gemini AI error:", error);
     return "The stars are silent today. Please try again later.";
+  }
+};
+
+export const parseFamilyText = async (text: string): Promise<Person[]> => {
+  const ai = getAI();
+  const prompt = `Extract all family members and their relationships from the following text. 
+  Assign unique string IDs to each person. 
+  Crucially, identify parents and link them using 'fatherId' and 'motherId' fields corresponding to the IDs you generate.
+  Output birth dates in YYYY-MM-DD format (estimate year if only age is given).
+  Text: ${text}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              firstName: { type: Type.STRING },
+              lastName: { type: Type.STRING },
+              gender: { type: Type.STRING, enum: ['Male', 'Female', 'Other'] },
+              birthDate: { type: Type.STRING },
+              deathDate: { type: Type.STRING },
+              fatherId: { type: Type.STRING },
+              motherId: { type: Type.STRING },
+              occupation: { type: Type.STRING },
+              bio: { type: Type.STRING }
+            },
+            required: ['id', 'firstName', 'lastName', 'gender', 'birthDate']
+          }
+        }
+      }
+    });
+    
+    return JSON.parse(response.text || "[]");
+  } catch (error) {
+    console.error("Gemini Parsing Error:", error);
+    throw new Error("Failed to parse family data. Please ensure the text is clear.");
   }
 };
