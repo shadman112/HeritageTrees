@@ -26,6 +26,9 @@ const App: React.FC = () => {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Sync status for the "One-Click" publish button
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     localStorage.setItem('heritage_people', JSON.stringify(people));
@@ -60,7 +63,7 @@ const App: React.FC = () => {
 
   const handleDeletePerson = (id: string) => {
     if (!isAdmin) return;
-    if (!window.confirm("Are you sure you want to remove this person from the family records?")) return;
+    if (!window.confirm("Are you sure you want to remove this person?")) return;
     
     setPeople(prev => prev
       .filter(p => p.id !== id)
@@ -72,6 +75,83 @@ const App: React.FC = () => {
       }))
     );
     setSelectedPerson(null);
+  };
+
+  const handleQuickPublish = async () => {
+    const configStr = localStorage.getItem('heritage_gh_config');
+    if (!configStr) {
+      setIsDataModalOpen(true);
+      return;
+    }
+
+    const config = JSON.parse(configStr);
+    if (!config.token || !config.username || !config.repo) {
+      setIsDataModalOpen(true);
+      return;
+    }
+
+    setSyncStatus('syncing');
+    
+    try {
+      // 1. Get SHA
+      const getFileResponse = await fetch(
+        `https://api.github.com/repos/${config.username}/${config.repo}/contents/constants.tsx`,
+        {
+          headers: {
+            Authorization: `token ${config.token}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      );
+
+      if (!getFileResponse.ok) throw new Error("Repo not found");
+      const { sha } = await getFileResponse.json();
+
+      // 2. Format content
+      const content = `import React from 'react';
+import { Person, Gender } from './types';
+
+export const INITIAL_PEOPLE: Person[] = ${JSON.stringify(people, null, 2)};
+
+export const COLORS = {
+  male: 'border-blue-500 bg-blue-50',
+  female: 'border-rose-500 bg-rose-50',
+  other: 'border-slate-500 bg-slate-50',
+  maleAccent: 'text-blue-600',
+  femaleAccent: 'text-rose-600',
+  otherAccent: 'text-slate-600'
+};`;
+
+      const encoded = btoa(unescape(encodeURIComponent(content)));
+
+      // 3. Push
+      const putResponse = await fetch(
+        `https://api.github.com/repos/${config.username}/${config.repo}/contents/constants.tsx`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `token ${config.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: `Web Update: ${new Date().toLocaleString()}`,
+            content: encoded,
+            sha,
+          }),
+        }
+      );
+
+      if (putResponse.ok) {
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      } else {
+        throw new Error("Push failed");
+      }
+    } catch (err) {
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+      alert("Publishing failed. Please check your GitHub settings in the Data Portal.");
+    }
   };
 
   const handleLogout = () => {
@@ -97,13 +177,44 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="hidden md:flex bg-slate-100 p-1 rounded-xl mr-2">
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <div className="flex items-center gap-2 pr-4 mr-4 border-r border-slate-100">
+              <button 
+                onClick={handleQuickPublish}
+                disabled={syncStatus === 'syncing'}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-sm ${
+                  syncStatus === 'syncing' ? 'bg-slate-100 text-slate-400' :
+                  syncStatus === 'success' ? 'bg-emerald-500 text-white shadow-emerald-100' :
+                  syncStatus === 'error' ? 'bg-red-500 text-white' :
+                  'bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50'
+                }`}
+              >
+                {syncStatus === 'syncing' ? (
+                  <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                ) : syncStatus === 'success' ? (
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                )}
+                {syncStatus === 'syncing' ? 'Publishing...' : syncStatus === 'success' ? 'Live!' : 'Publish to Live'}
+              </button>
+            </div>
+          )}
+
+          <div className="hidden lg:flex bg-slate-100 p-1 rounded-xl mr-2">
             <button 
               onClick={() => setView('tree')}
               className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${view === 'tree' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
             >
-              Tree View
+              Tree
             </button>
             <button 
               onClick={() => setView('list')}
@@ -118,10 +229,11 @@ const App: React.FC = () => {
               <button 
                 onClick={() => setIsDataModalOpen(true)}
                 className="text-slate-500 hover:text-indigo-600 p-2.5 rounded-xl transition-all hover:bg-slate-50 border border-transparent hover:border-slate-100"
-                title="Manage Data"
+                title="Settings & Sync"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </button>
               <button 
@@ -136,7 +248,7 @@ const App: React.FC = () => {
               <button 
                 onClick={handleLogout}
                 className="text-slate-400 hover:text-red-600 p-2 rounded-xl transition-colors"
-                title="Log out from Admin"
+                title="Log out"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -169,7 +281,7 @@ const App: React.FC = () => {
               <div className="mb-8 relative">
                 <input 
                   type="text" 
-                  placeholder="Search ancestors, descendants, relatives..."
+                  placeholder="Search family records..."
                   className="w-full pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-4 focus:ring-indigo-100 transition-all outline-none text-lg"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
@@ -187,11 +299,6 @@ const App: React.FC = () => {
                     onClick={() => setSelectedPerson(person)} 
                   />
                 ))}
-                {filteredPeople.length === 0 && (
-                  <div className="col-span-full py-20 text-center">
-                    <p className="text-slate-400 font-medium">No family members found matching your search.</p>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -199,12 +306,12 @@ const App: React.FC = () => {
 
         {/* Footer */}
         <footer className="bg-white border-t border-slate-100 px-6 py-3 flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-widest flex-shrink-0">
-          <div>© {new Date().getFullYear()} HeritageTree Archive</div>
+          <div>© {new Date().getFullYear()} HeritageTree</div>
           <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Live Record
+             <span className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${syncStatus === 'success' ? 'bg-emerald-400' : 'bg-slate-300'}`}></span> 
+              Cloud Sync Ready
             </span>
-            <span className="hidden md:inline">Preserving history, one generation at a time</span>
           </div>
         </footer>
       </main>
@@ -258,18 +365,18 @@ const App: React.FC = () => {
       )}
 
       {/* Mobile Nav Toggle */}
-      <div className="md:hidden fixed bottom-14 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur border border-slate-200 p-1 rounded-2xl shadow-xl flex gap-1 z-20">
+      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur border border-slate-200 p-1.5 rounded-2xl shadow-2xl flex gap-1 z-20">
         <button 
           onClick={() => setView('tree')}
-          className={`px-6 py-2 rounded-xl text-sm font-bold ${view === 'tree' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+          className={`px-6 py-2 rounded-xl text-sm font-bold ${view === 'tree' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-500'}`}
         >
           Tree
         </button>
         <button 
           onClick={() => setView('list')}
-          className={`px-6 py-2 rounded-xl text-sm font-bold ${view === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+          className={`px-6 py-2 rounded-xl text-sm font-bold ${view === 'list' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-500'}`}
         >
-          List
+          Directory
         </button>
       </div>
     </div>
